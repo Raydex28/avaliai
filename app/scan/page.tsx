@@ -1,0 +1,258 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import { Camera, Upload, PenTool, Smartphone, Monitor } from "lucide-react"
+import { useAuth } from "@/contexts/auth-context"
+import { DashboardLayout } from "@/components/dashboard-layout"
+import { useDeviceType } from "@/hooks/use-device-type"
+import { FileUpload } from "@/components/file-upload"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
+import { useToast } from "@/components/ui/use-toast"
+
+export default function ScanPage() {
+  const router = useRouter()
+  const { user } = useAuth()
+  const { toast } = useToast()
+  const { deviceType, isMobile, isDesktop } = useDeviceType()
+  const [extractedText, setExtractedText] = useState<string>("")
+  const [manualText, setManualText] = useState<string>("")
+  const [error, setError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<string>(isDesktop ? "upload" : "camera")
+
+  // Verificar autenticação
+  useEffect(() => {
+    if (!user) {
+      router.push("/login")
+    }
+  }, [user, router])
+
+  // Atualizar a aba ativa com base no tipo de dispositivo
+  useEffect(() => {
+    setActiveTab(isDesktop ? "upload" : "camera")
+  }, [isDesktop])
+
+  // Se o usuário não estiver autenticado, não renderize o conteúdo
+  if (!user) {
+    return null
+  }
+
+  const handleStartCamera = () => {
+    router.push("/scan/camera")
+  }
+
+  const handleFileTextExtracted = async (text: string) => {
+    setExtractedText(text)
+    setManualText(text)
+
+    // Verificar o tipo de texto antes de prosseguir
+    await verifyTextType(text)
+  }
+
+  const handleSubmitManualEntry = async () => {
+    if (!manualText.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Texto vazio",
+        description: "Por favor, digite o texto da redação.",
+      })
+      return
+    }
+
+    setExtractedText(manualText)
+
+    // Verificar o tipo de texto antes de prosseguir
+    await verifyTextType(manualText)
+  }
+
+  const verifyTextType = async (text: string) => {
+    try {
+      const response = await fetch("/api/verify-text", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Falha ao verificar o tipo de texto")
+      }
+
+      const result = await response.json()
+
+      // Redirecionar para a página de metadados com o texto
+      const params = new URLSearchParams({
+        text: text,
+        isValid: result.isValid.toString(),
+        reason: result.reason || "",
+        textType: result.textType || "",
+      })
+
+      router.push(`/scan/metadata?${params.toString()}`)
+    } catch (error) {
+      console.error("Erro ao verificar o tipo de texto:", error)
+      // Em caso de erro, permitir que o usuário continue
+      const params = new URLSearchParams({
+        text: text,
+        isValid: "true",
+        reason: "",
+        textType: "dissertativo-argumentativo",
+      })
+
+      router.push(`/scan/metadata?${params.toString()}`)
+
+      toast({
+        variant: "warning",
+        title: "Aviso",
+        description: "Não foi possível verificar o tipo de texto. Prosseguindo com a análise.",
+      })
+    }
+  }
+
+  // Renderizar a interface de upload de arquivo
+  const renderFileUploadInterface = () => {
+    return (
+      <div className="flex-1 p-6">
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-xl font-medium mb-4">Envie um arquivo com o texto da redação</h2>
+            <p className="text-muted-foreground mb-6">
+              Faça upload de um arquivo contendo o texto da redação para análise. Suportamos arquivos PDF, DOCX, RTF e
+              TXT.
+            </p>
+
+            <FileUpload
+              onTextExtracted={(text) => {
+                setManualText(text)
+                handleFileTextExtracted(text)
+              }}
+              onError={(errorMsg) => {
+                setError(errorMsg)
+                toast({
+                  variant: "destructive",
+                  title: "Erro ao processar arquivo",
+                  description: errorMsg,
+                })
+              }}
+            />
+          </div>
+
+          <div className="border-t pt-6 mt-8">
+            <h3 className="text-lg font-medium mb-4">Ou digite o texto manualmente</h3>
+            <Textarea
+              placeholder="Digite aqui o texto completo da redação..."
+              className="min-h-[200px]"
+              value={manualText}
+              onChange={(e) => setManualText(e.target.value)}
+            />
+
+            <div className="flex justify-end mt-4">
+              <Button onClick={handleSubmitManualEntry}>Continuar</Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Renderizar a interface de câmera para mobile
+  const renderCameraInterface = () => {
+    return (
+      <div className="flex-1 p-6">
+        <div className="space-y-6">
+          <div className="text-center">
+            <div className="mx-auto w-24 h-24 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center mb-4">
+              <Camera className="h-12 w-12 text-blue-600 dark:text-blue-400" />
+            </div>
+            <h2 className="text-xl font-medium mb-4">Escanear Redação Manuscrita</h2>
+            <p className="text-muted-foreground mb-6">
+              Use a câmera do seu dispositivo para capturar uma imagem da redação manuscrita. Nossa IA irá extrair o
+              texto automaticamente.
+            </p>
+
+            <Button size="lg" onClick={handleStartCamera} className="w-full max-w-sm">
+              <Camera className="h-5 w-5 mr-2" />
+              Abrir Câmera
+            </Button>
+          </div>
+
+          <div className="border-t pt-6 mt-8">
+            <h3 className="text-lg font-medium mb-4">Ou digite o texto manualmente</h3>
+            <Textarea
+              placeholder="Digite aqui o texto completo da redação manuscrita..."
+              className="min-h-[200px]"
+              value={manualText}
+              onChange={(e) => setManualText(e.target.value)}
+            />
+
+            <div className="flex justify-end mt-4">
+              <Button onClick={handleSubmitManualEntry}>Continuar</Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <DashboardLayout>
+      <div className="flex items-center mb-4">
+        <h1 className="text-xl font-bold">Nova Redação</h1>
+      </div>
+
+      <Card className="flex-1 flex flex-col">
+        <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
+          {/* Mostrar abas apenas se não for desktop */}
+          {!isDesktop && (
+            <Tabs defaultValue={activeTab} className="w-full" onValueChange={setActiveTab}>
+              <div className="border-b px-4">
+                <TabsList className="h-12">
+                  <TabsTrigger value="camera" className="flex items-center gap-2">
+                    <PenTool className="h-4 w-4" />
+                    <span>Escanear</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="upload" className="flex items-center gap-2">
+                    <Upload className="h-4 w-4" />
+                    <span>Arquivo</span>
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+
+              <TabsContent value="camera" className="flex-1 flex flex-col mt-0">
+                {renderCameraInterface()}
+              </TabsContent>
+
+              <TabsContent value="upload" className="flex-1 flex flex-col mt-0">
+                {renderFileUploadInterface()}
+              </TabsContent>
+            </Tabs>
+          )}
+
+          {/* Em desktop, mostrar apenas a interface de upload */}
+          {isDesktop && renderFileUploadInterface()}
+
+          {/* Mostrar informações sobre o dispositivo */}
+          <div className="p-4 bg-muted/50 border-t">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              {isDesktop ? (
+                <>
+                  <Monitor className="h-4 w-4" />
+                  <span>Modo Desktop - Upload de arquivos otimizado</span>
+                </>
+              ) : (
+                <>
+                  <Smartphone className="h-4 w-4" />
+                  <span>Modo Mobile - Escaneamento com câmera disponível</span>
+                </>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </DashboardLayout>
+  )
+}
